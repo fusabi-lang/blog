@@ -1,0 +1,16 @@
+# Temporary docs directory
+.fusabi-docs-temp/
+
+# Output directories (optional - comment out if you want to track them)
+# output/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
