@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+
+      - name: Get previous tag
+        id: previous_tag
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Previous tag: $PREVIOUS_TAG"
+          else
+            echo "No previous tag found (first release)"
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PREVIOUS_TAG="${{ steps.previous_tag.outputs.previous_tag }}"
+
+          echo "Generating changelog for $VERSION..."
+
+          CHANGELOG_FILE="CHANGELOG_${VERSION}.md"
+
+          echo "# Release $VERSION" > "$CHANGELOG_FILE"
+          echo "" >> "$CHANGELOG_FILE"
+          echo "Release date: $(date +%Y-%m-%d)" >> "$CHANGELOG_FILE"
+          echo "" >> "$CHANGELOG_FILE"
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "## Changes since $PREVIOUS_TAG" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+
+            # Group commits by type
+            echo "### Features" >> "$CHANGELOG_FILE"
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s" --grep="^feat" >> "$CHANGELOG_FILE" || true
+            echo "" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+
+            echo "### Bug Fixes" >> "$CHANGELOG_FILE"
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s" --grep="^fix" >> "$CHANGELOG_FILE" || true
+            echo "" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+
+            echo "### Documentation" >> "$CHANGELOG_FILE"
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s" --grep="^docs" >> "$CHANGELOG_FILE" || true
+            echo "" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+
+            echo "### Other Changes" >> "$CHANGELOG_FILE"
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s" --invert-grep --grep="^feat" --grep="^fix" --grep="^docs" >> "$CHANGELOG_FILE" || true
+            echo "" >> "$CHANGELOG_FILE"
+
+            echo "" >> "$CHANGELOG_FILE"
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...$VERSION" >> "$CHANGELOG_FILE"
+          else
+            echo "## Initial Release" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo "This is the first release of the Fusabi Blog." >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo "### Features" >> "$CHANGELOG_FILE"
+            echo "- Blog publishing system for fusabi-lang" >> "$CHANGELOG_FILE"
+            echo "- Support for daily, weekly, and monthly posts" >> "$CHANGELOG_FILE"
+            echo "- Automated publishing to fusabi-lang/docs" >> "$CHANGELOG_FILE"
+            echo "- Comprehensive documentation and style guide" >> "$CHANGELOG_FILE"
+          fi
+
+          echo "changelog_file=$CHANGELOG_FILE" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "Generated changelog:"
+          cat "$CHANGELOG_FILE"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHANGELOG_FILE="${{ steps.changelog.outputs.changelog_file }}"
+
+          # Check if release already exists
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, skipping creation"
+            exit 0
+          fi
+
+          # Create the release
+          gh release create "$VERSION" \
+            --title "Release $VERSION" \
+            --notes-file "$CHANGELOG_FILE" \
+            --latest
+
+          echo "Release $VERSION created successfully!"
+
+      - name: Release summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully created release **$VERSION**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View release: https://github.com/${{ github.repository }}/releases/tag/$VERSION" >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Deploy after release
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '*'
+
+      - name: Setup GitHub CLI
+        run: |
+          type -p gh > /dev/null || (
+            type -p curl >/dev/null || sudo apt install curl -y
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh -y
+          )
+
+      - name: Authenticate GitHub CLI
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Deploy blog posts
+        run: |
+          echo "Deploying blog posts after release..."
+          nu scripts/publish.nu all || echo "No posts to publish"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -221,6 +221,44 @@ just publish-weekly
 # 6. Visit https://fusabi-lang.github.io/docs/blog/
 ```
 
+## Documentation
+
+For detailed information about the blog system:
+
+- **[Documentation Structure](docs/STRUCTURE.md)** - Overview of documentation organization
+- **[Release Process](docs/RELEASE.md)** - How to create releases and deploy
+- **[Content Style Guide](docs/STYLE_GUIDE.md)** - Guidelines for writing blog posts
+- **[Version History](docs/versions/)** - Version-specific documentation
+
+### Quick Links
+
+- Current version documentation: `docs/`
+- Next version (vNEXT): `docs/versions/vNEXT/`
+
+## Contributing
+
+Please read our documentation before contributing:
+
+1. Review the [Style Guide](docs/STYLE_GUIDE.md) for content standards
+2. Follow the [Release Process](docs/RELEASE.md) for deployments
+3. Check the [CODEOWNERS](.github/CODEOWNERS) file for review requirements
+
+All pull requests require:
+- Passing CI checks (documentation validation, preview build)
+- Code review from designated owners
+- Branch protection rules are enforced on `main`
+
+## Continuous Integration
+
+This repository uses GitHub Actions for:
+
+- **Deploy**: Automated deployment on push to main
+- **Docs Check**: Documentation validation on PRs
+- **PR Preview**: Preview build validation for pull requests
+- **Release**: Automated releases with semantic versioning
+
+See [.github/workflows/](.github/workflows/) for workflow details.
+
 ## License
 
 Same as the Fusabi project.

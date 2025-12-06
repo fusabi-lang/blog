@@ -1,0 +1,93 @@
+name: Deploy Blog
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout blog repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '*'
+
+      - name: Validate blog posts
+        run: |
+          echo "Validating blog post structure..."
+          if [ -d "output/daily" ]; then
+            for file in output/daily/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+                # Check frontmatter exists
+                if ! grep -q "^---" "$file"; then
+                  echo "Warning: $file missing frontmatter"
+                fi
+              fi
+            done
+          fi
+
+          if [ -d "output/weekly" ]; then
+            for file in output/weekly/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+                if ! grep -q "^---" "$file"; then
+                  echo "Warning: $file missing frontmatter"
+                fi
+              fi
+            done
+          fi
+
+          if [ -d "output/monthly" ]; then
+            for file in output/monthly/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+                if ! grep -q "^---" "$file"; then
+                  echo "Warning: $file missing frontmatter"
+                fi
+              fi
+            done
+          fi
+
+          echo "Validation complete!"
+
+      - name: Setup GitHub CLI
+        run: |
+          type -p gh > /dev/null || (
+            type -p curl >/dev/null || sudo apt install curl -y
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh -y
+          )
+
+      - name: Authenticate GitHub CLI
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Publish all blog posts
+        run: |
+          echo "Publishing blog posts to fusabi-lang/docs..."
+          nu scripts/publish.nu all || echo "No new posts to publish or publish script needs configuration"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Blog posts have been processed and published to fusabi-lang/docs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Blog URL: https://fusabi-lang.github.io/docs/blog/" >> $GITHUB_STEP_SUMMARY
