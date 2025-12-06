@@ -1,0 +1,29 @@
+# CODEOWNERS for Fusabi Blog
+#
+# This file defines individuals or teams responsible for code review
+# in different parts of the repository.
+#
+# Learn more about CODEOWNERS:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+# These owners will be requested for review when someone opens a pull request
+*       @fusabi-lang/core-team
+
+# GitHub configuration and workflows
+/.github/       @fusabi-lang/devops @fusabi-lang/core-team
+
+# Documentation
+/docs/          @fusabi-lang/docs-team @fusabi-lang/core-team
+
+# Publishing scripts
+/scripts/       @fusabi-lang/devops @fusabi-lang/core-team
+
+# Blog content
+/output/        @fusabi-lang/content-team
+
+# Configuration files
+*.yml           @fusabi-lang/devops
+*.yaml          @fusabi-lang/devops
+justfile        @fusabi-lang/devops
+.gitignore      @fusabi-lang/devops

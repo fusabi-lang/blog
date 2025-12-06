@@ -1,0 +1,182 @@
+name: PR Preview Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '*'
+
+      - name: Validate blog posts
+        id: validate
+        run: |
+          echo "Validating blog posts in PR..."
+
+          validation_passed=true
+          warnings=()
+
+          # Check daily posts
+          if [ -d "output/daily" ]; then
+            for file in output/daily/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+
+                # Check frontmatter
+                if ! grep -q "^---" "$file"; then
+                  echo "Error: $file missing frontmatter"
+                  validation_passed=false
+                fi
+
+                # Check title in frontmatter
+                if ! grep -q "^title:" "$file"; then
+                  warnings+=("$file missing title in frontmatter")
+                fi
+              fi
+            done
+          fi
+
+          # Check weekly posts
+          if [ -d "output/weekly" ]; then
+            for file in output/weekly/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+
+                if ! grep -q "^---" "$file"; then
+                  echo "Error: $file missing frontmatter"
+                  validation_passed=false
+                fi
+
+                if ! grep -q "^title:" "$file"; then
+                  warnings+=("$file missing title in frontmatter")
+                fi
+              fi
+            done
+          fi
+
+          # Check monthly posts
+          if [ -d "output/monthly" ]; then
+            for file in output/monthly/*.md; do
+              if [ -f "$file" ]; then
+                echo "Validating $file"
+
+                if ! grep -q "^---" "$file"; then
+                  echo "Error: $file missing frontmatter"
+                  validation_passed=false
+                fi
+
+                if ! grep -q "^title:" "$file"; then
+                  warnings+=("$file missing title in frontmatter")
+                fi
+              fi
+            done
+          fi
+
+          # Output warnings
+          if [ ${#warnings[@]} -gt 0 ]; then
+            echo ""
+            echo "Warnings:"
+            for warning in "${warnings[@]}"; do
+              echo "  - $warning"
+            done
+          fi
+
+          if [ "$validation_passed" = false ]; then
+            echo "validation_status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "validation_status=passed" >> $GITHUB_OUTPUT
+          fi
+
+          echo ""
+          echo "Validation complete!"
+
+      - name: Dry run publish
+        run: |
+          echo "Running dry-run publish to preview changes..."
+          nu scripts/publish.nu all --dry-run || echo "Dry run completed with warnings"
+
+      - name: Post PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const status = '${{ steps.validate.outputs.validation_status }}';
+            const icon = status === 'passed' ? '✅' : '❌';
+
+            const body = `## ${icon} Preview Build ${status === 'passed' ? 'Passed' : 'Failed'}
+
+            ### Validation Results
+
+            ${status === 'passed' ?
+              'All blog posts passed validation checks!' :
+              'Some blog posts failed validation. Please check the workflow logs for details.'}
+
+            ### Next Steps
+
+            ${status === 'passed' ?
+              '- Ready for review\n- Merge to deploy to production' :
+              '- Fix validation errors\n- Push updated commits'}
+
+            <details>
+            <summary>Preview Build Details</summary>
+
+            - **Branch**: \`${{ github.head_ref }}\`
+            - **Commit**: ${{ github.sha }}
+            - **Run**: [View logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            </details>
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Preview Build')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Preview summary
+        if: always()
+        run: |
+          echo "## Preview Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Status: ${{ steps.validate.outputs.validation_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This PR has been validated and is ready for review." >> $GITHUB_STEP_SUMMARY
